@@ -6,11 +6,17 @@ import (
 	"net/http"
 	"strings"
 	"fmt"
+	"github.com/ogier/pflag"
 )
 
 func main() {
+
+	var port *int = pflag.IntP("port", "p", 8888, "The port to listen on")
+	pflag.Parse()
+
 	http.HandleFunc("/", handleRequest)
-	http.ListenAndServe(":8080", nil)
+	fmt.Printf("Listening on port %d...\n", *port)
+	http.ListenAndServe(":" + strconv.Itoa(*port), nil)
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
