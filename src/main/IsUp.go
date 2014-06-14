@@ -7,19 +7,33 @@ import (
 	"strings"
 	"fmt"
 	"github.com/ogier/pflag"
+	"time"
 )
 
 func main() {
 
 	var port *int = pflag.IntP("port", "p", 8888, "The port to listen on")
+	var timeout *int = pflag.IntP("timeout", "t", 10, "Seconds to wait before giving up")
 	pflag.Parse()
 
-	http.HandleFunc("/", handleRequest)
 	fmt.Printf("Listening on port %d...\n", *port)
-	http.ListenAndServe(":" + strconv.Itoa(*port), nil)
+	s := service{}
+	s.port = *port
+	s.timeout = *timeout
+	s.listen()
 }
 
-func handleRequest(w http.ResponseWriter, r *http.Request) {
+type service struct {
+	port int
+	timeout int
+}
+
+func (s service) listen() {
+	http.HandleFunc("/", s.handleRequest)
+	http.ListenAndServe(":" + strconv.Itoa(s.port), nil)
+}
+
+func (s service) handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	if len(r.RequestURI[1:]) == 0 {
 		http.Error(w, "Not Found", http.StatusNotFound)
@@ -39,13 +53,16 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isUp := testConnection(host, port)
+	isUp := s.testConnection(host, port)
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, "{\"success\": %t}", isUp)
 }
 
-func testConnection(host string, port int) (bool) {
-	conn, err := net.Dial("tcp", host + ":" + strconv.Itoa(port))
+func (s service) testConnection(host string, port int) (bool) {
+
+	timeout := time.Duration(s.timeout) * time.Second
+
+	conn, err := net.DialTimeout("tcp", host + ":" + strconv.Itoa(port), timeout)
 	if err != nil {
 		return false
 	}
