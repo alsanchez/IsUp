@@ -4,19 +4,18 @@ import (
 	"net"
 	"strconv"
 	"net/http"
-	"strings"
 	"fmt"
 	"github.com/ogier/pflag"
+	"github.com/gorilla/mux"
 	"time"
 )
 
 func main() {
 
 	var port *int = pflag.IntP("port", "p", 8888, "The port to listen on")
-	var timeout *int = pflag.IntP("timeout", "t", 10, "Seconds to wait before giving up")
+	var timeout *int = pflag.IntP("defaul-timeout", "t", 10, "Seconds to wait before giving up on the request")
 	pflag.Parse()
 
-	fmt.Printf("Listening on port %d...\n", *port)
 	s := service{}
 	s.port = *port
 	s.timeout = *timeout
@@ -29,40 +28,43 @@ type service struct {
 }
 
 func (s service) listen() {
-	http.HandleFunc("/", s.handleRequest)
-	http.ListenAndServe(":" + strconv.Itoa(s.port), nil)
+	router := mux.NewRouter()
+	router.HandleFunc("/{host}/{port:[0-9]+}", s.handleRequest).Methods("GET")
+
+	fmt.Printf("Listening on port %d with a default timeout of %d seconds...\n", s.port, s.timeout)
+	http.Handle("/", router)
+	err := http.ListenAndServe(":" + strconv.Itoa(s.port), nil)
+	if err == nil {
+		fmt.Println(err)
+	}
 }
 
 func (s service) handleRequest(w http.ResponseWriter, r *http.Request) {
 
-	if len(r.RequestURI[1:]) == 0 {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
+	params := mux.Vars(r)
+	host := params["host"]
+	timeout := s.timeout
+
+	if r.FormValue("timeout") != "" {
+		timeout, _ = strconv.Atoi(r.FormValue("timeout"))
 	}
 
-	pathComponents := strings.Split(r.RequestURI[1:], "/")
-	if len(pathComponents) != 2 {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
-	}
-
-	host := pathComponents[0]
-	port, err := strconv.Atoi(pathComponents[1])
+	port, err := strconv.Atoi(params["port"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	isUp := s.testConnection(host, port)
+	isUp := s.testConnection(host, port, timeout)
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, "{\"success\": %t}", isUp)
 }
 
-func (s service) testConnection(host string, port int) (bool) {
+func (s service) testConnection(host string, port int, timeout int) (bool) {
 
-	timeout := time.Duration(s.timeout) * time.Second
+	timeout_duration := time.Duration(timeout) * time.Second
 
-	conn, err := net.DialTimeout("tcp", host + ":" + strconv.Itoa(port), timeout)
+	conn, err := net.DialTimeout("tcp", host + ":" + strconv.Itoa(port), timeout_duration)
 	if err != nil {
 		return false
 	}
